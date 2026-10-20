@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>레이저 표적 컨트롤</title>
+<style>
+  :root{
+    --bg:#0a0f1d; --panel:#131a2c; --panel2:#1b2440; --line:#2a3558;
+    --text:#eef1f8; --mute:#8b97b8; --accent:#ffb020; --green:#22d36b;
+    --red:#ff4d5e; --blue:#4da3ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    -webkit-tap-highlight-color:transparent}
+  button{font:inherit;color:inherit;cursor:pointer;border:none}
+  button:disabled{opacity:.4;cursor:not-allowed}
+
+  /* ---------- 상단 바 ---------- */
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{font-weight:800;font-size:1.1rem;letter-spacing:.02em;margin-right:auto;display:flex;align-items:center;gap:10px}
+  .brand .ring{width:22px;height:22px;border-radius:50%;border:4px solid var(--accent);box-shadow:inset 0 0 0 3px var(--panel),inset 0 0 0 7px var(--accent)}
+  .conn{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:var(--panel2);font-size:.9rem}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--mute)}
+  .conn.on .dot{background:var(--green);box-shadow:0 0 10px var(--green)}
+  .conn.on{background:#0f3a24;border:2px solid var(--green);padding:6px 16px 6px 12px;font-size:1.15rem;font-weight:800;color:#bff7d6}
+  .conn.on .dot{width:12px;height:12px}
+  .conn .sub{font-size:.8rem;font-weight:600;color:var(--mute);margin-left:4px}
+  .conn.on .sub{color:#7fd9a6}
+  .conn.connecting .dot{background:var(--accent);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  .hbtn{padding:10px 16px;border-radius:10px;background:var(--blue);color:#04122a;font-weight:700}
+  .hbtn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+
+  /* ---------- 모드 탭 ---------- */
+  .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:6px;margin:16px;border-radius:14px;background:var(--panel)}
+  .tabs button{padding:14px 8px;border-radius:10px;background:transparent;font-weight:700;font-size:1.05rem;color:var(--mute)}
+  .tabs button.active{background:var(--accent);color:#1a1200}
+
+  /* ---------- 레이아웃 ---------- */
+  .wrap{display:grid;gap:16px;padding:0 16px 24px;grid-template-columns:1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}
+
+  /* ---------- 타이머 ---------- */
+  .main{display:flex;flex-direction:column;align-items:center;justify-content:safe center;text-align:center;gap:clamp(4px,1.1vh,12px);padding:clamp(10px,1.8vh,22px) 16px}
+
+  /* 넓은 화면(PC·가로 태블릿): 한 화면에 꽉 차게, 오른쪽 패널만 스크롤 */
+  @media (min-width:960px){
+    body{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+    .wrap{flex:1;min-height:0;padding-bottom:16px}
+    .main{min-height:0;overflow:hidden}
+  }
+  /* 높이가 낮은 화면에서 상단 여백 줄이기 */
+  @media (max-height:820px){
+    header{padding:8px 16px}
+    .tabs{margin:10px 16px}
+    .tabs button{padding:10px 8px}
+    .tlabel{font-size:1rem}
+    .status{font-size:1.05rem}
+    .hitcount{font-size:1.15rem}
+  }
+  .display{display:flex;flex-direction:column;align-items:center;gap:inherit;width:100%;min-width:0;container-type:inline-size}
+
+  .tlabel{font-size:1.1rem;color:var(--mute);font-weight:600;min-height:1.4em}
+  .timer{font-size:clamp(3rem,min(20vw,21vh),15rem);line-height:.95;font-weight:800;
+    font-variant-numeric:tabular-nums;letter-spacing:-.03em;transition:color .2s}
+  .main:has(.quickset.none) .timer{font-size:clamp(3rem,min(22vw,27vh),16rem)}
+  .timer.warn{color:var(--red)} .timer.done{color:var(--green)} .timer.idle{color:#5b6688}
+  .status{font-size:1.25rem;font-weight:700;min-height:1.5em}
+  .status.good{color:var(--green)} .status.bad{color:var(--red)} .status.info{color:var(--accent)}
+
+  .hits{display:flex;gap:clamp(24px,min(8cqw,104px),104px);justify-content:center;margin:6px 0 4px}
+  .hit{width:clamp(48px,min(13cqw,15vh),176px);aspect-ratio:1;border-radius:50%;background:#3a1218;
+    border:5px solid #6b1e29;transition:all .15s}
+  .hit.on{background:var(--green);border-color:#9ff5c3;box-shadow:0 0 36px rgba(34,211,107,.7)}
+  .hitcount{font-size:1.4rem;font-weight:800;color:var(--mute)}
+  .hitcount b{color:var(--text)}
+
+  .bigbtns{display:grid;grid-template-columns:1fr 1fr;gap:14px;width:100%;max-width:760px;margin-top:clamp(2px,1vh,8px)}
+  .big{padding:clamp(10px,2.6vh,34px) 10px;border-radius:20px;font-size:clamp(1.4rem,min(5vw,5vh),2.6rem);font-weight:900;letter-spacing:.04em}
+  .big small{display:block;font-size:.9rem;font-weight:600;opacity:.8;letter-spacing:0;margin-top:4px}
+  .start{background:var(--green);color:#03250f}
+  .reset{background:var(--red);color:#2a0308}
+  .big:active{transform:scale(.98)}
+
+  /* ---------- 빠른 설정 줄 (타이머 위) ---------- */
+  .quickset{display:flex;flex-wrap:wrap;gap:10px 22px;justify-content:center;align-items:center;transition:opacity .2s}
+  .quickset:empty,.quickset.none{display:none}
+  .qs{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--mute);flex-wrap:wrap;justify-content:center}
+  .qs .stepper input{width:84px;flex:none;font-size:1.25rem;padding:4px}
+  .qs .stepper button{width:40px;font-size:1.1rem}
+  .qs .chips{margin-top:0}
+  body.running .quickset{opacity:.3;pointer-events:none}
+  .bestline{font-size:clamp(1.2rem,3.2vh,2.2rem);color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+  .bestline:empty{display:none}
+  .bestline.small{font-size:clamp(.95rem,2vh,1.2rem);color:var(--mute);font-weight:600}
+
+  /* ---------- 서랍 패널 (기록·표적·도움말) ---------- */
+  .side{position:fixed;top:0;right:0;height:100%;width:min(380px,92vw);background:var(--bg);border-left:1px solid var(--line);
+    padding:16px;overflow:auto;transform:translateX(105%);transition:transform .25s;z-index:20;display:flex;flex-direction:column;gap:16px}
+  body.drawer-open .side{transform:none}
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:19;display:none}
+  body.drawer-open .scrim{display:block}
+  .drawer-head{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:1.1rem}
+  .drawer-head button{background:var(--panel2);border:1px solid var(--line);border-radius:10px;width:40px;height:40px;font-size:1.2rem}
+  .side h3{margin:0 0 12px;font-size:1rem;color:var(--mute);font-weight:700}
+  .setting{margin-bottom:16px}
+  .setting label{display:block;font-weight:700;margin-bottom:8px}
+  .stepper{display:flex;gap:6px;align-items:stretch}
+  .stepper button{width:52px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:1.2rem;font-weight:800}
+  .stepper input{flex:1;min-width:0;text-align:center;font-size:1.6rem;font-weight:800;border-radius:10px;
+    border:1px solid var(--line);background:#0d1324;color:var(--text);padding:8px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chips button{padding:6px 12px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);font-size:.9rem}
+  .hint{font-size:.85rem;color:var(--mute);line-height:1.5;margin:0}
+
+  .records{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
+  .records li{display:flex;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:10px;background:var(--panel2);font-variant-numeric:tabular-nums}
+  .records li .ok{color:var(--green);font-weight:800}
+  .records li .ng{color:var(--red);font-weight:800}
+  .records .empty{background:none;color:var(--mute);justify-content:center}
+  .best{font-size:.95rem;margin-bottom:10px;color:var(--accent);font-weight:700;min-height:1.2em}
+  .linkbtn{background:none;color:var(--mute);text-decoration:underline;font-size:.85rem;padding:6px 0}
+
+  /* ---------- 센서 민감도 ---------- */
+  .sensrow{display:flex;align-items:center;gap:8px}
+  .sensrow .end{font-size:.85rem;color:var(--mute);font-weight:700;width:34px;text-align:center}
+  .sensrow button{width:44px;height:44px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:1.3rem;font-weight:800}
+  .sensval{flex:1;text-align:center;font-size:2rem;font-weight:900;font-variant-numeric:tabular-nums}
+  .sensval small{display:block;font-size:.75rem;font-weight:600;color:var(--mute)}
+  #sensRange{width:100%;margin:10px 0 4px;accent-color:var(--accent)}
+  .meter{position:relative;height:22px;border-radius:8px;background:#0d1324;border:1px solid var(--line);overflow:hidden;margin-top:12px}
+  .meter .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:#5b6688;transition:width .12s}
+  .meter.over .fill{background:var(--green)}
+  .meter .mark{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--accent);left:0}
+  .meterinfo{display:flex;justify-content:space-between;font-size:.85rem;color:var(--mute);margin-top:6px;font-variant-numeric:tabular-nums}
+  .meterinfo b{color:var(--text)}
+  .meter.over + .meterinfo .det{color:var(--green);font-weight:800}
+  .diagbox{display:flex;gap:12px;align-items:flex-start;margin:10px 16px 0;padding:10px 14px;border-radius:12px;background:#3a2a07;color:#ffd98a;font-size:.95rem;line-height:1.5}
+  .diagbox.radio{background:#0d2a44;color:#bfe0ff}
+  .diagbox > div{flex:1}
+  .diagbox b{margin-right:8px}
+  .diagbox small{display:block;opacity:.8}
+  .diagbox button{background:none;font-size:1.1rem;opacity:.8;padding:0 4px}
+  .warnbox{margin:16px;padding:12px 16px;border-radius:12px;background:#3a2a07;color:#ffd98a;font-size:.95rem;display:none}
+  .hidden{display:none !important}
+  /* 넓은 가로 화면: 왼쪽 = 시간·명중, 오른쪽 = 세로 버튼 → 타이머를 크게 */
+  @media (min-width:960px) and (min-aspect-ratio:4/3){
+    .main{flex-direction:row;align-items:stretch;gap:clamp(16px,2vw,32px)}
+    .display{flex:1;justify-content:safe center;gap:clamp(4px,1.2vh,14px)}
+    .bigbtns{display:contents}
+    .big{flex:none;width:clamp(170px,14vw,280px);padding:10px;font-size:clamp(1.7rem,min(2.6vw,6vh),3.2rem);
+      display:flex;flex-direction:column;align-items:center;justify-content:center}
+    #startBtn{order:0} .display{order:1} #resetBtn{order:2}
+    .timer{font-size:clamp(3rem,min(18vw,35vh),24rem)}
+    .main:has(.quickset.none) .timer{font-size:clamp(3rem,min(19vw,41vh),26rem)}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="ring"></span>레이저 표적 컨트롤</div>
+  <div class="conn" id="conn"><span class="dot"></span><span id="connText">연결 안 됨</span></div>
+  <button class="hbtn ghost hidden" id="identBtn" title="연결된 표적을 파란색으로 깜빡입니다">표적 찾기</button>
+  <button class="hbtn ghost" id="drawerBtn">기록·설정</button>
+  <button class="hbtn ghost" id="fsBtn" title="전체 화면 (F11)">전체화면</button>
+  <button class="hbtn" id="connBtn">표적 연결</button>
+</header>
+
+<div class="warnbox" id="noBt">
+  이 브라우저는 Web Bluetooth를 지원하지 않습니다. PC/안드로이드의 <b>Chrome</b> 또는 <b>Edge</b>를 사용하세요. (아이폰은 Bluefy 앱)
+</div>
+
+<div class="diagbox hidden" id="diagBox">
+  <div><b id="diagTitle">연결 끊김 원인</b><span id="diagText"></span><small id="diagCount"></small></div>
+  <button id="diagClose" aria-label="닫기">✕</button>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-mode="practice" class="active">기록 도전</button>
+  <button data-mode="training">타임 어택</button>
+  <button data-mode="match">모둠 경기</button>
+</nav>
+
+<div class="wrap">
+  <section class="card main">
+    <div class="display">
+    <div class="hits" id="hits"></div>
+    <div class="tlabel" id="tlabel">경과 시간</div>
+    <div class="timer idle" id="timer">0.00</div>
+    <div class="status" id="status">START를 누르면 시작합니다</div>
+    <div class="quickset none" id="quickset">
+      <div class="qs hidden" id="qsTrain">
+        <span>제한 시간</span>
+        <div class="stepper">
+          <button data-step="-5" data-target="trainSec">−</button>
+          <input type="number" id="trainSec" min="5" max="600" value="30" inputmode="numeric">
+          <button data-step="5" data-target="trainSec">+</button>
+        </div>
+        <span>초</span>
+        <div class="chips" data-target="trainSec">
+          <button data-v="15">15</button><button data-v="30">30</button><button data-v="60">60</button><button data-v="90">90</button><button data-v="120">120</button>
+        </div>
+      </div>
+      <div class="qs hidden" id="qsMatch1">
+        <span>1인 사격 시간</span>
+        <div class="stepper">
+          <button data-step="-5" data-target="matchSec">−</button>
+          <input type="number" id="matchSec" min="5" max="600" value="30" inputmode="numeric">
+          <button data-step="5" data-target="matchSec">+</button>
+        </div>
+        <span>초</span>
+      </div>
+      <div class="qs hidden" id="qsMatch2">
+        <span>사수</span>
+        <div class="stepper">
+          <button data-step="-1" data-target="shooters">−</button>
+          <input type="number" id="shooters" min="1" max="50" value="5" inputmode="numeric">
+          <button data-step="1" data-target="shooters">+</button>
+        </div>
+        <span>명</span>
+      </div>
+    </div>
+    <div class="bestline" id="bestMain"></div>
+    </div>
+    <div class="bigbtns">
+      <button class="big start" id="startBtn">START<small id="startSub">시작 / 다시 시작</small></button>
+      <button class="big reset" id="resetBtn">RESET<small id="resetSub">초기화</small></button>
+    </div>
+  </section>
+
+  <aside class="side" id="drawer">
+    <div class="drawer-head"><span>기록 · 설정</span><button id="drawerClose" aria-label="닫기">✕</button></div>
+    <div class="card">
+      <h3 id="setTitle">모드 설명</h3>
+      <p class="hint" id="setPractice">START → 화면·표적 초기화 후 시간이 올라가고, 5발 명중 시 멈춥니다. 표적은 자동 리셋되지 않으니 START(다시 시작)나 RESET을 누르세요.</p>
+      <p class="hint hidden" id="setTraining">제한 시간이 끝나면 표적이 명중을 인식하지 않습니다. START를 누르면 초기화 후 타이머가 다시 시작됩니다.</p>
+      <p class="hint hidden" id="setMatch">시간이 끝나거나 5발을 다 맞추면 표적이 바로 리셋되고 다음 사수 차례가 자동으로 시작됩니다. 직전 사수 결과는 타이머 아래에 표시됩니다.</p>
+    </div>
+    <div class="card">
+      <h3>센서 민감도</h3>
+      <div class="sensrow">
+        <span class="end">둔감</span>
+        <button id="sensMinus" aria-label="민감도 낮추기">−</button>
+        <div class="sensval"><span id="sensVal">5</span><small id="sensNote">기본값</small></div>
+        <button id="sensPlus" aria-label="민감도 높이기">+</button>
+        <span class="end">민감</span>
+      </div>
+      <input type="range" id="sensRange" min="1" max="10" step="1" value="5">
+      <button class="linkbtn" id="sensDefault">기본값(5)으로</button>
+      <div id="meterBox" class="hidden">
+        <div class="meter" id="meter"><div class="fill" id="meterFill"></div><div class="mark" id="meterMark"></div></div>
+        <div class="meterinfo"><span>현재 밝기 <b id="lvNow">-</b></span><span class="det" id="lvDet"></span><span>명중 기준 <b id="lvTh">-</b></span></div>
+      </div>
+      <p class="hint" id="sensHint" style="margin-top:10px">표적을 연결하면 실시간 밝기를 보면서 조절할 수 있습니다. 연결하지 않은 표적은 기본값(5)으로 작동합니다.</p>
+    </div>
+
+    <div class="card">
+      <h3 id="recTitle">기록</h3>
+      <div class="best" id="best"></div>
+      <ul class="records" id="records"></ul>
+      <button class="linkbtn" id="clearRec">기록 지우기</button>
+    </div>
+
+    <div class="card">
+      <h3>표적</h3>
+      <p class="hint" id="devInfo">연결된 표적이 없습니다. 연결하지 않으면 표적은 단독 모드(5발 → 자동 리셋)로 작동합니다.</p>
+      <button class="linkbtn hidden" id="changeBtn">다른 표적으로 변경</button>
+      <p class="hint" id="demoHint" style="margin-top:8px">※ 미연결 상태에서는 <b>스페이스바</b>로 명중을 흉내 내어 화면을 테스트할 수 있습니다.</p>
+    </div>
+  </aside>
+</div>
+<div class="scrim" id="scrim"></div>
+
+<script>
+/* ================= BLE ================= */
+const SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const RX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const TX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+let dev = null, rxCh = null, txCh = null, connected = false;
+let sendQ = Promise.resolve();
+const $ = id => document.getElementById(id);
+
+if (!navigator.bluetooth) { $('noBt').style.display = 'block'; }
+
+function send(cmd){
+  if (!connected || !rxCh) return Promise.resolve();
+  const data = new TextEncoder().encode(cmd);
+  sendQ = sendQ.then(() => rxCh.writeValueWithResponse ? rxCh.writeValueWithResponse(data) : rxCh.writeValue(data))
+               .catch(e => console.warn('send fail', cmd, e));
+  return sendQ;
+}
+
+let readyResolver = null;
+function waitReady(ms){
+  if (!connected) return Promise.resolve(true);
+  return new Promise(res => {
+    const t = setTimeout(() => { readyResolver = null; res(false); }, ms);
+    readyResolver = () => { clearTimeout(t); readyResolver = null; res(true); };
+  });
+}
+
+// "TARGET-03" → "3번 표적", "TARGET-A1B2" → "표적 A1B2"
+function targetLabel(name){
+  if (!name) return '표적';
+  const m = name.match(/^TARGET-(\d+)$/i);
+  if (m) return parseInt(m[1], 10) + '번 표적';
+  const h = name.match(/^TARGET-(.+)$/i);
+  return h ? '표적 ' + h[1] : name;
+}
+
+function setConn(s, text){
+  $('conn').className = 'conn ' + s;
+  if (s === 'on' && dev){
+    $('connText').innerHTML = '';
+    $('connText').append(targetLabel(dev.name) + ' 연결됨');
+    const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = dev.name || '';
+    $('connText').appendChild(sub);
+    document.title = targetLabel(dev.name) + ' · 레이저 표적 컨트롤';
+  } else {
+    $('connText').textContent = text;
+    document.title = '레이저 표적 컨트롤';
+  }
+  $('connBtn').textContent = s === 'on' ? '연결 해제' : '표적 연결';
+  $('identBtn').classList.toggle('hidden', s !== 'on');
+  $('changeBtn').classList.toggle('hidden', !dev);
+  $('demoHint').classList.toggle('hidden', s === 'on');
+}
+
+/* ---------- 연결 (끊기면 '표적 연결' 버튼으로 직접 다시 연결) ---------- */
+let manualDisc = false;       // 사용자가 직접 끊었는지
+let matchInterrupted = false; // 모둠 경기 도중 끊겼는지 (다시 연결하면 같은 사수부터 이어서 하기)
+let dropAt = 0;               // 마지막으로 저절로 끊긴 시각 (원인 진단용)
+const dropStats = { total: 0, reboot: 0 };
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('연결 시간 초과')), ms))]);
+
+// 고른 표적(dev)에 연결 + 초기 설정
+async function openGatt(){
+  let server;
+  try{
+    server = await withTimeout(dev.gatt.connect(), 10000);
+  }catch(e){
+    try{ dev.gatt.disconnect(); }catch(_){}      // 시간 초과 후 뒤늦게 붙지 않게
+    throw e;
+  }
+  const svc = await server.getPrimaryService(SVC);
+  rxCh = await svc.getCharacteristic(RX);
+  txCh = await svc.getCharacteristic(TX);
+  txCh.oncharacteristicvaluechanged = e => onMessage(new TextDecoder().decode(e.target.value));
+  await txCh.startNotifications();
+  connected = true;
+  setConn('on', dev.name || '표적');
+  $('devInfo').textContent = `연결됨: ${targetLabel(dev.name)} (${dev.name || '이름 없음'}) — 웹 제어 모드입니다. 연결이 끊기면 상단의 '표적 연결'을 눌러 다시 연결하세요. 어느 표적인지 헷갈리면 '표적 찾기'를 누르세요.`;
+  send('STATUS');                 // 첫 명령 → 표적이 웹 모드(대기)로 바뀜
+  send('SENS:' + sens);           // 웹에서 정한 민감도 적용
+  showMeter(true);
+  if (drawerOpen()) send('MON:1');
+  keepAwake();                    // 연결 중에는 화면이 꺼지지 않게
+}
+
+async function connect(forceNew){
+  claimTarget();
+  if (!navigator.bluetooth){ alert('이 브라우저는 Web Bluetooth를 지원하지 않습니다. Chrome/Edge를 사용하세요.'); return; }
+  try{
+    if (forceNew || !dev){
+      const picked = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'TARGET' }, { services: [SVC] }],
+        optionalServices: [SVC]
+      });
+      if (dev !== picked){
+        dev = picked;
+        dev.addEventListener('gattserverdisconnected', onDisconnected);
+      }
+    }
+    setConn('connecting', targetLabel(dev.name) + ' 연결 중…');
+    await openGatt();
+    if (matchInterrupted){
+      // 모둠 경기 도중 끊겼던 경우 → 기록은 그대로, 끊긴 사수부터 이어서
+      sndHit();
+      $('tlabel').textContent = `${round} / ${clampInput('shooters')}번 사수 대기`;
+      setTimer(fmt(clampInput('matchSec'), 1), 'idle');
+      setStatus(`다시 연결됨 — START를 누르면 ${round}번 사수부터 이어서 합니다`, 'info');
+    } else {
+      resetAll();
+    }
+  }catch(e){
+    console.error(e);
+    connected = false; rxCh = txCh = null;
+    setConn('off', '연결 안 됨');
+    if (e.name === 'NotFoundError'){
+      setStatus('목록에 표적이 안 보이면: 표적 전원을 껐다 켜고, 노트북 블루투스를 껐다 켠 뒤 다시 눌러 보세요', 'info');
+    } else {
+      dev = null;                  // 다음에 누르면 표적 목록부터 다시 열기
+      setStatus('연결하지 못했습니다 — 표적 전원을 껐다 켠 뒤 \'표적 연결\'을 다시 눌러 주세요', 'bad');
+    }
+  }
+}
+
+async function disconnect(){
+  if (dev && dev.gatt.connected){
+    manualDisc = true;
+    try{ await send('BYE'); }catch(e){}   // 표적을 단독 모드로 돌려 놓고
+    dev.gatt.disconnect();
+  }
+}
+
+function onDisconnected(){
+  connected = false; rxCh = txCh = null;
+  showMeter(false);
+  const wasActive = isActive();
+  if (wasActive && mode === 'match' && round > 0) matchInterrupted = true;
+  stopEverything();
+  hits = 0; renderHits();
+
+  if (manualDisc || !dev){
+    manualDisc = false;
+    matchInterrupted = false;
+    setConn('off', '연결 안 됨');
+    $('devInfo').textContent = '연결을 해제했습니다. 표적은 단독 모드(5발 → 자동 리셋)로 작동합니다.';
+    setStatus('START를 누르면 시작합니다');
+    return;
+  }
+  // 저절로 끊김 → 직접 다시 연결하도록 안내
+  dropAt = performance.now();
+  sndEnd();
+  setConn('off', targetLabel(dev.name) + ' 연결 끊김');
+  $('devInfo').textContent = '연결이 끊겼습니다. 상단의 \'표적 연결\'을 누르면 같은 표적에 다시 연결합니다.';
+  setStatus(matchInterrupted
+    ? `연결이 끊겼습니다 — '표적 연결'을 누르면 ${round}번 사수부터 이어서 할 수 있습니다`
+    : '연결이 끊겼습니다 — 상단의 \'표적 연결\'을 눌러 다시 연결하세요', 'bad');
+}
+
+function onMessage(msg){
+  msg = msg.trim();
+  if (msg.startsWith('HIT:')) handleHit(parseInt(msg.slice(4), 10));
+  else if (msg === 'READY') { if (readyResolver) readyResolver(); }
+  else if (msg.startsWith('LV:') || msg.startsWith('CAL:')){
+    const [a, b] = msg.slice(msg.indexOf(':') + 1).split(',').map(Number);
+    if (msg.startsWith('LV:')) updateMeter(a, b);
+    else { $('lvTh').textContent = b; $('meterMark').style.left = Math.min(100, b / 4095 * 100) + '%'; }
+  }
+  else if (msg.startsWith('HELLO:')) console.log('표적 정보', msg);
+  else if (msg.startsWith('BOOT:')){
+    const [boot, up] = msg.slice(5).split(',');
+    if (dropAt && up !== undefined) diagnoseDrop(boot, parseInt(up, 10));
+  }
+}
+
+$('connBtn').onclick = () => connected ? disconnect() : connect(false);
+$('changeBtn').onclick = async () => { await disconnect(); connect(true); };
+// 페이지를 닫을 때 표적을 단독 모드로 돌려 놓기
+window.addEventListener('pagehide', () => {
+  if (connected && rxCh){ try{ rxCh.writeValueWithoutResponse(new TextEncoder().encode('BYE')); }catch(e){} }
+});
+$('identBtn').onclick = () => send('IDENT');
+
+/* ================= 사운드 ================= */
+let actx = null;
+function beep(freq = 880, dur = 0.08, vol = 0.15){
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = freq; o.type = 'square';
+    g.gain.value = vol; o.connect(g); g.connect(actx.destination);
+    o.start(); g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.stop(actx.currentTime + dur + 0.02);
+  }catch(e){}
+}
+const sndStart = () => { beep(660,.12); setTimeout(()=>beep(990,.18),140); };
+const sndHit   = () => beep(1200,.06);
+const sndDone  = () => { [880,1100,1320].forEach((f,i)=>setTimeout(()=>beep(f,.12),i*120)); };
+const sndEnd   = () => beep(220,.5,.2);
+
+/* ================= 화면 잠금 방지 ================= */
+let wakeLock = null;
+async function keepAwake(){ try{ if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>wakeLock=null); } }catch(e){} }
+
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (connected || isActive())) keepAwake(); });
+
+/* ================= 상태 ================= */
+let mode = 'practice';
+let hits = 0;
+let phase = 'idle';      // idle | arming | run | done | timeup | prep | shoot | result
+let session = 0;         // 비동기 흐름 취소용
+let t0 = 0, endAt = 0, prepEnd = 0, frozen = 0;
+let round = 0;
+const records = { practice: [], training: [], match: [] };
+try{ Object.assign(records, JSON.parse(localStorage.getItem('targetRecords') || '{}')); }catch(e){}
+function saveRecords(){ try{ localStorage.setItem('targetRecords', JSON.stringify(records)); }catch(e){} }
+
+['trainSec','matchSec','shooters'].forEach(id => {
+  try{ const v = localStorage.getItem('set_' + id); if (v !== null) $(id).value = v; }catch(e){}
+  $(id).addEventListener('change', () => { clampInput(id); try{ localStorage.setItem('set_' + id, $(id).value); }catch(e){} });
+});
+function clampInput(id){
+  const el = $(id); let v = parseInt(el.value, 10);
+  if (isNaN(v)) v = parseInt(el.min, 10);
+  v = Math.max(parseInt(el.min,10), Math.min(parseInt(el.max,10), v));
+  el.value = v; return v;
+}
+document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+  const el = $(b.dataset.target); el.value = (parseInt(el.value,10)||0) + parseInt(b.dataset.step,10);
+  el.dispatchEvent(new Event('change'));
+});
+document.querySelectorAll('.chips').forEach(c => c.querySelectorAll('button').forEach(b => b.onclick = () => {
+  const el = $(c.dataset.target); el.value = b.dataset.v; el.dispatchEvent(new Event('change'));
+}));
+
+/* ================= 렌더링 ================= */
+const hitsEl = $('hits');
+for (let i = 0; i < 5; i++){ const d = document.createElement('div'); d.className = 'hit'; hitsEl.appendChild(d); }
+function renderHits(){
+  [...hitsEl.children].forEach((d,i) => d.classList.toggle('on', i < hits));
+}
+function setStatus(t, cls = ''){ const s = $('status'); s.textContent = t; s.className = 'status ' + cls; }
+function setTimer(v, cls = ''){ const t = $('timer'); t.textContent = v; t.className = 'timer ' + cls; }
+const fmt = (s, d = 2) => Math.max(0, s).toFixed(d);
+
+// 모둠 합계: 성공한 사수는 걸린 시간, 실패한 사수는 제한 시간 전체
+function matchTotal(list){
+  return list.reduce((sum, r) => sum + (r.cleared ? r.time : (r.limit || clampInput('matchSec'))), 0);
+}
+
+function renderRecords(){
+  const list = records[mode], ul = $('records'); ul.innerHTML = '';
+  if (!list.length){ ul.innerHTML = '<li class="empty">아직 기록이 없습니다</li>'; $('best').textContent = ''; $('bestMain').textContent = ''; return; }
+  list.slice().reverse().forEach(r => {
+    const li = document.createElement('li');
+    const left = mode === 'match' ? `${r.round}번 사수` : r.at;
+    const right = r.cleared ? `<span class="ok">5/5 · ${fmt(r.time)}초</span>`
+                            : `<span class="ng">${r.hits}/5 · 시간 초과${mode === 'match' ? ` (${fmt(r.limit || clampInput('matchSec'))}초)` : ''}</span>`;
+    li.innerHTML = `<span>${left}</span>${right}`; ul.appendChild(li);
+  });
+  const ok = list.filter(r => r.cleared);
+  $('best').textContent = (mode === 'match' ? `합계 ${fmt(matchTotal(list))}초 · ` : '')
+    + (ok.length ? `최고 기록 ${fmt(Math.min(...ok.map(r=>r.time)))}초 · 성공 ${ok.length}/${list.length}` : `성공 0/${list.length}`);
+  $('bestMain').textContent = mode === 'match' ? '' : (ok.length ? `최고 기록 ${fmt(Math.min(...ok.map(r=>r.time)))}초` : '');
+}
+function addRecord(r){
+  r.at = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  records[mode].push(r); if (records[mode].length > 100) records[mode].shift();
+  saveRecords(); renderRecords();
+}
+$('clearRec').onclick = () => { if (confirm('이 모드의 기록을 지울까요?')) { records[mode] = []; saveRecords(); renderRecords(); } };
+
+/* ================= 모드 전환 ================= */
+const MODE_UI = {
+  practice: { label:'경과 시간', start:'시작 / 다시 시작', reset:'초기화', setTitle:'기록 도전', rec:'기록 도전 결과' },
+  training: { label:'남은 시간', start:'시작 / 다시 시작', reset:'초기화', setTitle:'타임 어택', rec:'타임 어택 결과' },
+  match:    { label:'모둠 경기 대기', start:'경기 시작', reset:'경기 종료', setTitle:'모둠 경기', rec:'사수별 결과' },
+};
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  if (b.dataset.mode === mode) return;
+  if (isActive() && !confirm('진행 중입니다. 모드를 바꾸면 중지됩니다. 계속할까요?')) return;
+  mode = b.dataset.mode;
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
+  $('setPractice').classList.toggle('hidden', mode !== 'practice');
+  $('setTraining').classList.toggle('hidden', mode !== 'training');
+  $('setMatch').classList.toggle('hidden', mode !== 'match');
+  $('qsTrain').classList.toggle('hidden', mode !== 'training');
+  $('qsMatch1').classList.toggle('hidden', mode !== 'match');
+  $('qsMatch2').classList.toggle('hidden', mode !== 'match');
+  $('quickset').classList.toggle('none', mode === 'practice');
+  resetAll();
+});
+function isActive(){ return ['arming','run','prep','shoot','result'].includes(phase); }
+function applyModeUI(){
+  const u = MODE_UI[mode];
+  $('tlabel').textContent = u.label; $('startSub').textContent = u.start; $('resetSub').textContent = u.reset;
+  $('setTitle').textContent = u.setTitle; $('recTitle').textContent = u.rec;
+  renderRecords();
+}
+
+/* ================= 공통 동작 ================= */
+function stopEverything(){
+  session++; phase = 'idle'; readyResolver = null;
+}
+function resetAll(){
+  stopEverything();
+  matchInterrupted = false;
+  hits = 0; renderHits(); applyModeUI();
+  if (mode === 'match') $('bestMain').textContent = '';
+  $('bestMain').classList.remove('small');
+  if (mode === 'practice') setTimer('0.00', 'idle');
+  if (mode === 'training') setTimer(fmt(clampInput('trainSec'), 1), 'idle');
+  if (mode === 'match')    setTimer(fmt(clampInput('matchSec'), 1), 'idle');
+  setStatus('START를 누르면 시작합니다');
+  send('CLEAR');
+}
+
+// START → 표적 초기화(빨강) + 0.5초 보정 → READY 받으면 타이머 시작
+async function armTarget(){
+  const my = session;
+  phase = 'arming';
+  hits = 0; renderHits();
+  setStatus('표적 준비 중…', 'info');
+  const p = waitReady(2500);
+  await send('START');
+  await p;
+  return my === session;   // 중간에 취소되지 않았으면 true
+}
+
+function acceptingHits(){ return phase === 'run' || phase === 'shoot'; }
+
+function handleHit(n){
+  if (!acceptingHits()) return;
+  if (!(n >= 1 && n <= 5)) return;
+  hits = n; renderHits();
+  if (hits >= 5){ onClear(); } else { sndHit(); }
+}
+
+function onClear(){   // 5발 모두 명중
+  const now = performance.now();
+  sndDone();
+  if (mode === 'practice'){
+    frozen = (now - t0) / 1000; phase = 'done';
+    setTimer(fmt(frozen), 'done');
+    setStatus(`5발 명중! 기록 ${fmt(frozen)}초`, 'good');
+    addRecord({ cleared:true, time:frozen, hits:5 });
+  } else if (mode === 'training'){
+    const used = (now - t0) / 1000; phase = 'done';
+    setTimer(fmt(used), 'done');
+    $('tlabel').textContent = '완료 기록';
+    setStatus(`5발 명중! ${fmt(used)}초 (남은 시간 ${fmt((endAt-now)/1000,1)}초)`, 'good');
+    addRecord({ cleared:true, time:used, hits:5 });
+  } else {
+    endRound(true);
+  }
+}
+
+/* ---------- START / RESET 버튼 ---------- */
+$('startBtn').onclick = async () => {
+  keepAwake();
+  stopEverything();
+  if (mode === 'match' && matchInterrupted){ matchInterrupted = false; round--; nextRound(); return; }
+  $('bestMain').classList.remove('small');
+  if (mode === 'match'){ round = 0; records.match = []; saveRecords(); renderRecords(); $('bestMain').textContent = ''; nextRound(); return; }
+  applyModeUI();
+  if (mode === 'practice') setTimer('0.00');
+  else setTimer(fmt(clampInput('trainSec'),1));
+  const ok = await armTarget();
+  if (!ok) return;
+  t0 = performance.now();
+  if (mode === 'training') endAt = t0 + clampInput('trainSec') * 1000;
+  phase = 'run';
+  setStatus('사격 시작!', 'good');
+  sndStart();
+};
+
+$('resetBtn').onclick = () => {
+  if (mode === 'match' && isActive() && !confirm('경기를 종료할까요?')) return;
+  resetAll();
+};
+
+/* ---------- 경기 모드 ---------- */
+function nextRound(){
+  const my = session;
+  if (round >= clampInput('shooters')) { finishMatch(); return; }
+  round++; hits = 0; renderHits();
+  startShooting(my);              // START 전송 → 표적 자동 리셋(빨강) + 보정 후 사격 시작
+}
+async function startShooting(my){
+  $('tlabel').textContent = `${round} / ${clampInput('shooters')}번 사수 · 남은 시간`;
+  setTimer(fmt(clampInput('matchSec'),1));
+  const ok = await armTarget();
+  if (!ok || my !== session) return;
+  t0 = performance.now();
+  endAt = t0 + clampInput('matchSec') * 1000;
+  phase = 'shoot';
+  setStatus(`${round}번 사수 사격 시작!`, 'good');
+  sndStart();
+}
+function finishMatch(){
+  phase = 'finished';
+  send('STOP');                    // 마지막 사수 결과(LED)는 그대로 두고 인식만 중지
+  const list = records.match, ok = list.filter(r => r.cleared);
+  $('tlabel').textContent = `경기 종료 · 모둠 합계 기록 (${list.length}명)`;
+  setTimer(fmt(matchTotal(list)), 'done');
+  let bestTxt = '';
+  if (ok.length){
+    const best = ok.reduce((a, b) => a.time <= b.time ? a : b);
+    bestTxt = `최고 기록 ${fmt(best.time)}초 (${best.round}번 사수) · `;
+  }
+  setStatus(`${bestTxt}성공 ${ok.length} / ${list.length}명`, 'good');
+  const fails = list.length - ok.length;
+  $('bestMain').classList.add('small');
+  $('bestMain').textContent = fails ? `실패한 ${fails}명은 제한 시간(${fmt(clampInput('matchSec'), 0)}초)으로 계산` : '';
+  sndDone();
+}
+
+function endRound(cleared){
+  const my = session;
+  const now = performance.now();
+  phase = 'result';
+  let msg;
+  if (cleared){
+    const t = (now - t0) / 1000;
+    addRecord({ round, cleared:true, time:t, hits:5 });
+    msg = `직전 ${round}번 사수 · 5발 명중 ${fmt(t)}초`;
+    setTimer(fmt(t), 'done');                       // 1초 동안 기록과 초록 5개를 보여 줌
+    $('tlabel').textContent = `${round}번 사수 기록`;
+    setStatus(`${round}번 사수 5발 명중!`, 'good');
+  } else {
+    sndEnd();
+    addRecord({ round, cleared:false, hits, limit: clampInput('matchSec') });
+    msg = `직전 ${round}번 사수 · ${hits}/5 명중 (시간 초과)`;
+  }
+  msg += ` · 누적 합계 ${fmt(matchTotal(records.match))}초`;
+  const goNext = () => {
+    if (my !== session || phase !== 'result') return;   // 그사이 RESET 등을 눌렀으면 중단
+    nextRound();                                        // START 전송 → 표적 리셋(빨강) → 다음 사수
+    if (phase !== 'finished') $('bestMain').textContent = msg;
+  };
+  if (cleared) setTimeout(goNext, 1000);   // 5발 명중 : 1초 멈춘 뒤 다음 사수
+  else goNext();                           // 시간 초과 : 바로 다음 사수
+}
+
+/* ================= 프레임 루프 ================= */
+function frame(){
+  const now = performance.now();
+  document.body.classList.toggle('running', isActive());
+  if (mode === 'practice' && phase === 'run'){
+    setTimer(fmt((now - t0) / 1000));
+  }
+  if (mode === 'training' && phase === 'run'){
+    const rem = (endAt - now) / 1000;
+    if (rem <= 0){
+      phase = 'timeup'; send('STOP'); sndEnd();
+      setTimer('0.0', 'warn');
+      setStatus(`시간 종료 — ${hits}/5 명중 (표적 인식 중지)`, 'bad');
+      addRecord({ cleared:false, hits });
+    } else setTimer(fmt(rem,1), rem <= 5 ? 'warn' : '');
+  }
+  if (mode === 'match'){
+    if (phase === 'shoot'){
+      const rem = (endAt - now) / 1000;
+      if (rem <= 0) endRound(false);
+      else setTimer(fmt(rem,1), rem <= 5 ? 'warn' : '');
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ================= 테스트용 (미연결 시 스페이스바 = 명중) ================= */
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !connected && e.target.tagName !== 'INPUT'){
+    e.preventDefault();
+    if (acceptingHits()) handleHit(hits + 1);
+  }
+});
+
+/* ================= 한 번에 한 탭만 표적 사용 ================= */
+// 이 페이지를 새 탭에서 열거나 새 탭에서 연결하면, 다른 탭은 표적 연결을 놓아 줌
+// (두 탭이 같은 표적을 동시에 조작하지 않게)
+const TAB_ID = Math.random().toString(36).slice(2);
+function claimTarget(){ try{ localStorage.setItem('targetClaim', TAB_ID + ':' + Date.now()); }catch(e){} }
+window.addEventListener('storage', e => {
+  if (e.key !== 'targetClaim' || !e.newValue || e.newValue.startsWith(TAB_ID)) return;
+  if (connected){
+    disconnect();
+    setConn('off', '다른 탭에서 사용 중');
+    setStatus('다른 탭에서 표적을 사용하려고 해서 이 탭의 연결을 해제했습니다', 'info');
+  }
+});
+claimTarget();
+
+/* ================= 끊김 원인 진단 ================= */
+function diagnoseDrop(boot, upSec){
+  const downSec = (performance.now() - dropAt) / 1000;
+  dropAt = 0;
+  const rebooted = upSec < downSec + 5;     // 끊긴 뒤에 다시 켜졌다면 재부팅된 것
+  dropStats.total++; if (rebooted) dropStats.reboot++;
+  let title, text, radio = false;
+  if (!rebooted){
+    radio = true;
+    title = '블루투스 신호 끊김';
+    text = '표적은 켜진 채로 신호만 끊겼습니다. 노트북과 표적 사이의 거리, 사람이나 벽에 가려지지 않았는지 확인하세요.';
+  } else if (boot === 'BROWN' || boot === 'BROWNOUT'){
+    title = '전원 부족';
+    text = '전압이 떨어져 표적이 재부팅되었습니다. 새 건전지나 USB 보조배터리를 쓰세요.';
+  } else if (boot === 'PANIC' || boot === 'WDT'){
+    title = '표적 프로그램 멈춤';
+    text = '표적 프로그램이 멈춰 재부팅되었습니다. 어떤 동작 중이었는지 알려 주시면 고칠 수 있습니다.';
+  } else {
+    title = '표적 전원이 꺼졌다 켜짐';
+    text = '스위치나 건전지 접촉이 흔들리지 않는지 확인하세요.';
+  }
+  $('diagTitle').textContent = title;
+  $('diagText').textContent = text;
+  $('diagCount').textContent = `이번 수업 중 끊김 ${dropStats.total}회 (그중 표적 재부팅 ${dropStats.reboot}회)`;
+  $('diagBox').classList.toggle('radio', radio);
+  $('diagBox').classList.remove('hidden');
+}
+$('diagClose').onclick = () => $('diagBox').classList.add('hidden');
+
+/* ================= 센서 민감도 ================= */
+let sens = 5;
+try{ const v = parseInt(localStorage.getItem('sensLevel'), 10); if (v >= 1 && v <= 10) sens = v; }catch(e){}
+function setSens(v, push = true){
+  sens = Math.max(1, Math.min(10, parseInt(v, 10) || 5));
+  $('sensVal').textContent = sens;
+  $('sensRange').value = sens;
+  $('sensNote').textContent = sens === 5 ? '기본값' : (sens < 5 ? '둔감하게' : '민감하게');
+  try{ localStorage.setItem('sensLevel', sens); }catch(e){}
+  if (push) send('SENS:' + sens);
+}
+$('sensMinus').onclick = () => setSens(sens - 1);
+$('sensPlus').onclick  = () => setSens(sens + 1);
+$('sensRange').oninput = e => setSens(e.target.value);
+$('sensDefault').onclick = () => setSens(5);
+setSens(sens, false);
+
+function updateMeter(now, th){
+  const pct = v => Math.max(0, Math.min(100, v / 4095 * 100)) + '%';
+  $('meterFill').style.width = pct(now);
+  $('meterMark').style.left = pct(th);
+  $('lvNow').textContent = now;
+  $('lvTh').textContent = th;
+  const over = th > 0 && now > th;
+  $('meter').classList.toggle('over', over);
+  $('lvDet').textContent = over ? '감지!' : '';
+}
+function showMeter(on){
+  $('meterBox').classList.toggle('hidden', !on);
+  $('sensHint').textContent = on
+    ? '레이저를 비췄을 때 막대가 노란 기준선을 넘으면 명중입니다. 레이저 없이도 넘으면 숫자를 낮추고(둔감), 레이저를 비춰도 안 넘으면 숫자를 높이세요(민감). 연결을 끊으면 표적은 기본값(5)으로 돌아갑니다.'
+    : '표적을 연결하면 실시간 밝기를 보면서 조절할 수 있습니다. 연결하지 않은 표적은 기본값(5)으로 작동합니다.';
+}
+
+/* ================= 서랍 패널 ================= */
+const drawerOpen = () => document.body.classList.contains('drawer-open');
+const openDrawer  = () => { document.body.classList.add('drawer-open'); if (connected) send('MON:1'); };
+const closeDrawer = () => { if (drawerOpen() && connected) send('MON:0'); document.body.classList.remove('drawer-open'); };
+$('drawerBtn').onclick = openDrawer;
+$('drawerClose').onclick = closeDrawer;
+$('scrim').onclick = closeDrawer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+/* ================= 전체 화면 ================= */
+$('fsBtn').onclick = () => {
+  try{
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  }catch(e){}
+};
+document.addEventListener('fullscreenchange', () => {
+  $('fsBtn').textContent = document.fullscreenElement ? '창 모드' : '전체화면';
+});
+
+setConn('off', '연결 안 됨');
+resetAll();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
